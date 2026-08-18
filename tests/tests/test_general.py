@@ -49,6 +49,24 @@ def test_logger_name(tmp_path):
     assert logger_name in logging.root.manager.loggerDict
 
 
+def test_third_party_log_level(tmp_path):
+    """Loggers named in `third_party_loggers` are pinned to
+    `third_party_log_level`, independent of `file_log_level`.
+    """
+    fancylog.start_logging(
+        tmp_path,
+        fancylog,
+        file_log_level="DEBUG",
+        third_party_loggers=["some_noisy_dependency"],
+        third_party_log_level="WARNING",
+    )
+
+    assert (
+        logging.getLogger("some_noisy_dependency").level == logging.WARNING
+    )
+    assert logging.getLogger().level == logging.DEBUG
+
+
 def test_assert_named_logger_with_multiprocessing(tmp_path):
     """Test an error is raised if trying to use multiprocess
     logging with a named logger.
