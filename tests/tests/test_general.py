@@ -61,9 +61,7 @@ def test_third_party_log_level(tmp_path):
         third_party_log_level="WARNING",
     )
 
-    assert (
-        logging.getLogger("some_noisy_dependency").level == logging.WARNING
-    )
+    assert logging.getLogger("some_noisy_dependency").level == logging.WARNING
     assert logging.getLogger().level == logging.DEBUG
 
 
