@@ -39,6 +39,8 @@ def start_logging(
     log_to_console=True,
     timestamp=True,
     logger_name=None,
+    third_party_loggers=None,
+    third_party_log_level="WARNING",
 ):
     """Prepare the log file, and then begin logging.
 
@@ -83,6 +85,12 @@ def start_logging(
     logger_name
         If None, logger uses default logger; otherwise, logger
         name is set to `logger_name`.
+    third_party_loggers
+        Names of loggers (e.g. verbose dependencies) to pin to
+        `third_party_log_level`, overriding the level they would
+        otherwise inherit. Default: None.
+    third_party_log_level
+        Level to set `third_party_loggers` to. Default: 'WARNING'.
 
     Returns
     -------
@@ -131,6 +139,8 @@ def start_logging(
         multiprocessing_aware=multiprocessing_aware,
         log_to_console=log_to_console,
         logger_name=logger_name,
+        third_party_loggers=third_party_loggers,
+        third_party_log_level=third_party_log_level,
     )
     return logging_file
 
@@ -475,6 +485,8 @@ def initialise_logger(
     file_level="DEBUG",
     log_to_console=True,
     logger_name=None,
+    third_party_loggers=None,
+    third_party_log_level="WARNING",
 ):
     """Set up (possibly multiprocessing aware) logging.
 
@@ -491,6 +503,11 @@ def initialise_logger(
     logger_name
         If None, logger uses default logger. Otherwise, logger name
         is set to `logger_name`.
+    third_party_loggers
+        Names of loggers to pin to `third_party_log_level`, overriding
+        the level they would otherwise inherit. Default: None.
+    third_party_log_level
+        Level to set `third_party_loggers` to. Default: 'WARNING'.
 
     """
     if logger_name:
@@ -501,6 +518,12 @@ def initialise_logger(
         logger = logging.getLogger()
 
     logger.setLevel(getattr(logging, file_level))
+
+    if third_party_loggers:
+        for name in third_party_loggers:
+            logging.getLogger(name).setLevel(
+                getattr(logging, third_party_log_level)
+            )
 
     formatter = logging.Formatter(
         "%(asctime)s - %(levelname)s"
@@ -531,6 +554,8 @@ def setup_logging(
     multiprocessing_aware=True,
     log_to_console=True,
     logger_name=None,
+    third_party_loggers=None,
+    third_party_log_level="WARNING",
 ):
     """Set up (possibly multiprocessing-aware) logging.
 
@@ -548,6 +573,11 @@ def setup_logging(
         If True, logs will also be printed to the console. Default is True.
     logger_name
         Name of the logger to use. If None, the default logger is used.
+    third_party_loggers
+        Names of loggers to pin to `third_party_log_level`, overriding
+        the level they would otherwise inherit. Default: None.
+    third_party_log_level
+        Level to set `third_party_loggers` to. Default: 'WARNING'.
 
     """
     if multiprocessing_aware and logger_name:
@@ -572,6 +602,8 @@ def setup_logging(
         file_level=file_level,
         log_to_console=log_to_console,
         logger_name=logger_name,
+        third_party_loggers=third_party_loggers,
+        third_party_log_level=third_party_log_level,
     )
 
     if multiprocessing_aware:
