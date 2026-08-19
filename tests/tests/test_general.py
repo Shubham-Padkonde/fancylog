@@ -308,24 +308,29 @@ def test_correct_pkg_version_logged(tmp_path):
                     )
 
 
+def _make_fake_dist(name, version, location):
+    fake_dist = MagicMock()
+    fake_dist.metadata = {"Name": name}
+    fake_dist.version = version
+    fake_dist.locate_file.return_value = location
+    return fake_dist
+
+
 def test_mock_pip_pkgs(tmp_path):
-    """Mock pip list subprocess
+    """Mock installed distributions
     and test that packages are logged correctly.
     """
 
-    # Simulated `pip list --json` output
-    fake_pip_output = json.dumps(
-        [
-            {"name": "fancylog", "version": "1.1.1", "location": "fake_env"},
-            {"name": "pytest", "version": "1.1.1", "location": "global_env"},
-        ]
-    )
+    fake_distributions = [
+        _make_fake_dist("fancylog", "1.1.1", "fake_env"),
+        _make_fake_dist("pytest", "1.1.1", "global_env"),
+    ]
 
-    # Patch the environment and subprocess
+    # Patch the environment and installed distributions
     with (
         patch.dict(os.environ, {}, clear=False),
         patch("os.getenv") as mock_getenv,
-        patch("subprocess.run") as mock_run,
+        patch("fancylog.fancylog.distributions") as mock_distributions,
     ):
         # Eliminate conda environment packages triggers logging pip list
         os.environ.pop("CONDA_PREFIX", None)
@@ -333,8 +338,7 @@ def test_mock_pip_pkgs(tmp_path):
 
         mock_getenv.return_value = "fake_env"
 
-        # Mocked subprocess result
-        mock_run.return_value = MagicMock(stdout=fake_pip_output, returncode=0)
+        mock_distributions.return_value = fake_distributions
 
         fancylog.start_logging(tmp_path, fancylog, write_env_packages=True)
 
@@ -403,19 +407,16 @@ def test_mock_no_environment(tmp_path):
     and test that packages are logged correctly.
     """
 
-    # Simulated `pip list --json` output
-    fake_pip_output = json.dumps(
-        [
-            {"name": "fancylog", "version": "1.1.1", "location": "fake_env"},
-            {"name": "pytest", "version": "1.1.1", "location": "global_env"},
-        ]
-    )
+    fake_distributions = [
+        _make_fake_dist("fancylog", "1.1.1", "fake_env"),
+        _make_fake_dist("pytest", "1.1.1", "global_env"),
+    ]
 
-    # Patch the environment and subprocess
+    # Patch the environment and installed distributions
     with (
         patch.dict(os.environ, {}, clear=False),
         patch("os.getenv") as mock_getenv,
-        patch("subprocess.run") as mock_run,
+        patch("fancylog.fancylog.distributions") as mock_distributions,
     ):
         # Eliminate conda environment packages triggers logging pip list
         os.environ.pop("CONDA_PREFIX", None)
@@ -424,8 +425,7 @@ def test_mock_no_environment(tmp_path):
         # Mock lack of any local environment
         mock_getenv.return_value = None
 
-        # Mocked subprocess result
-        mock_run.return_value = MagicMock(stdout=fake_pip_output, returncode=0)
+        mock_distributions.return_value = fake_distributions
 
         fancylog.start_logging(tmp_path, fancylog, write_env_packages=True)
 

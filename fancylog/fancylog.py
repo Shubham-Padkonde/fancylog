@@ -9,6 +9,7 @@ import subprocess
 import sys
 import warnings
 from datetime import datetime
+from importlib.metadata import distributions
 from importlib.util import find_spec
 
 from rich.logging import RichHandler
@@ -254,7 +255,7 @@ class LoggingHeader:
         """Write the local/global environment packages used to run the script.
 
         Attempt to collect conda packages and, if this fails,
-        collect pip packages.
+        collect the packages installed in the running Python environment.
 
         Parameters
         ----------
@@ -281,40 +282,24 @@ class LoggingHeader:
             self.file.write("Environment packages (conda):\n")
             self.write_packages(env_pkgs)
 
-        # If no conda env, fall back to logging pip
+        # If no conda env, fall back to logging installed packages
+        # via importlib.metadata, which does not depend on pip
+        # being installed in the running environment.
         except (KeyError, subprocess.CalledProcessError, json.JSONDecodeError):
-            try:
-                python_executable = sys.executable
-                pip_list = subprocess.run(
-                    [
-                        python_executable,
-                        "-m",
-                        "pip",
-                        "list",
-                        "--verbose",
-                        "--format=json",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-
-                all_pkgs = json.loads(pip_list.stdout)
-
-            except (subprocess.CalledProcessError, json.JSONDecodeError):
-                self.file.write(
-                    "Could not find global pip packages. "
-                    "No packages were logged.\n\n"
-                )
-                return
+            all_pkgs = [
+                {
+                    "name": dist.metadata["Name"],
+                    "version": dist.version,
+                    "location": str(dist.locate_file("")),
+                }
+                for dist in distributions()
+            ]
 
             virtual_env = os.getenv("VIRTUAL_ENV")
             if virtual_env:
                 # If there is a local env, log local packages first
                 env_pkgs = [
-                    pkg
-                    for pkg in all_pkgs
-                    if virtual_env in str(pkg.get("location", ""))
+                    pkg for pkg in all_pkgs if virtual_env in pkg["location"]
                 ]
 
                 self.file.write(
