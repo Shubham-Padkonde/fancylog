@@ -2,9 +2,9 @@ import json
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
-from importlib.metadata import distributions
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -270,67 +270,66 @@ def test_environment_header(boolean, operator, tmp_path):
 
 
 def test_correct_pkg_version_logged(tmp_path):
-    """Package versions logged should be equal to
-    the output of `conda list` or `pip list`.
+    """Package versions logged should be equal to the output of
+    whichever backend `write_environment_packages` actually used.
+
+    The backend is picked the same way the library picks it (conda,
+    then uv, then pip), so this stays a real-environment check rather
+    than forcing a branch that may not work here. For example, a venv
+    created by `uv venv` (as tox-uv does on CI) has no `pip` installed
+    at all, so forcing the pip branch would fail. The individual
+    branches are covered in isolation by the mocked tests below.
     """
     fancylog.start_logging(tmp_path, fancylog, write_env_packages=True)
 
     log_file = next(tmp_path.glob("*.log"))
+    file_content = log_file.read_text()
 
-    try:
-        # If there is a conda environment, assert that the correct
-        # version is logged for all pkgs
-        conda_exe = os.environ["CONDA_EXE"]
-        conda_list = subprocess.run(
-            [conda_exe, "list", "--json"], capture_output=True, text=True
-        )
+    conda_exe = os.environ.get("CONDA_EXE")
+    uv_exe = shutil.which("uv")
 
-        conda_pkgs = json.loads(conda_list.stdout)
-        for pkg in conda_pkgs:
-            assert f"{pkg['name']:20} {pkg['version']:15}\n"
+    if conda_exe:
+        command = [conda_exe, "list", "--json"]
+    elif uv_exe:
+        command = [uv_exe, "pip", "list", "--format=json"]
+    else:
+        command = [
+            sys.executable,
+            "-m",
+            "pip",
+            "list",
+            "--verbose",
+            "--format=json",
+        ]
 
-    except KeyError:
-        # If there is no conda environment, assert that the correct
-        # version is logged for all packages logged with pip list
-        with open(log_file) as file:
-            file_content = file.read()
+    pkg_list = subprocess.run(
+        command, capture_output=True, text=True, check=True
+    )
 
-            # Test local environment versions
-            local_site_packages = next(
-                p for p in sys.path if "site-packages" in p
-            )
-
-            for dist in distributions():
-                if str(dist.locate_file("")).startswith(local_site_packages):
-                    assert (
-                        f"{dist.metadata['Name']:20} {dist.version}"
-                        in file_content
-                    )
+    for pkg in json.loads(pkg_list.stdout):
+        assert f"{pkg['name']:20} {pkg['version']:15}\n" in file_content
 
 
-def _make_fake_dist(name, version, location):
-    fake_dist = MagicMock()
-    fake_dist.metadata = {"Name": name}
-    fake_dist.version = version
-    fake_dist.locate_file.return_value = location
-    return fake_dist
+def _make_fake_pkg(name, version, location):
+    return {"name": name, "version": version, "location": location}
 
 
 def test_mock_pip_pkgs(tmp_path):
-    """Mock installed distributions
+    """Mock `pip list` output
     and test that packages are logged correctly.
     """
 
-    fake_distributions = [
-        _make_fake_dist("fancylog", "1.1.1", "fake_env"),
-        _make_fake_dist("pytest", "1.1.1", "global_env"),
+    fake_pkgs = [
+        _make_fake_pkg("fancylog", "1.1.1", "fake_env"),
+        _make_fake_pkg("pytest", "1.1.1", "global_env"),
     ]
 
-    # Patch the environment and installed distributions
+    # Patch the environment, uv availability and pip subprocess call
     with (
         patch.dict(os.environ, {}, clear=False),
         patch("os.getenv") as mock_getenv,
-        patch("fancylog.fancylog.distributions") as mock_distributions,
+        patch("shutil.which", return_value=None),
+        patch("subprocess.run") as mock_run,
     ):
         # Eliminate conda environment packages triggers logging pip list
         os.environ.pop("CONDA_PREFIX", None)
@@ -338,7 +337,9 @@ def test_mock_pip_pkgs(tmp_path):
 
         mock_getenv.return_value = "fake_env"
 
-        mock_distributions.return_value = fake_distributions
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(fake_pkgs), returncode=0
+        )
 
         fancylog.start_logging(tmp_path, fancylog, write_env_packages=True)
 
@@ -351,6 +352,47 @@ def test_mock_pip_pkgs(tmp_path):
             assert (
                 "No conda environment found, reporting pip packages"
             ) in file_content
+
+            assert f"{'fancylog':20} {'1.1.1'}"
+            assert f"{'pytest':20} {'1.1.1'}"
+
+
+def test_mock_uv_pkgs(tmp_path):
+    """Mock `uv pip list` output
+    and test that packages are logged correctly.
+    """
+
+    fake_pkgs = [
+        _make_fake_pkg("fancylog", "1.1.1", None),
+        _make_fake_pkg("pytest", "1.1.1", None),
+    ]
+
+    # Patch the environment, uv availability and uv subprocess call
+    with (
+        patch.dict(os.environ, {}, clear=False),
+        patch("shutil.which", return_value="/usr/bin/uv"),
+        patch("subprocess.run") as mock_run,
+    ):
+        # Eliminate conda environment packages triggers logging uv pip list
+        os.environ.pop("CONDA_PREFIX", None)
+        os.environ.pop("CONDA_EXE", None)
+
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(fake_pkgs), returncode=0
+        )
+
+        fancylog.start_logging(tmp_path, fancylog, write_env_packages=True)
+
+        log_file = next(tmp_path.glob("*.log"))
+
+        # Log contains the uv subheader and mocked pkgs versions
+        with open(log_file) as file:
+            file_content = file.read()
+
+            assert (
+                "No conda environment found, reporting uv packages"
+            ) in file_content
+            assert "Environment packages (uv pip):" in file_content
 
             assert f"{'fancylog':20} {'1.1.1'}"
             assert f"{'pytest':20} {'1.1.1'}"
@@ -407,16 +449,17 @@ def test_mock_no_environment(tmp_path):
     and test that packages are logged correctly.
     """
 
-    fake_distributions = [
-        _make_fake_dist("fancylog", "1.1.1", "fake_env"),
-        _make_fake_dist("pytest", "1.1.1", "global_env"),
+    fake_pkgs = [
+        _make_fake_pkg("fancylog", "1.1.1", "fake_env"),
+        _make_fake_pkg("pytest", "1.1.1", "global_env"),
     ]
 
-    # Patch the environment and installed distributions
+    # Patch the environment, uv availability and pip subprocess call
     with (
         patch.dict(os.environ, {}, clear=False),
         patch("os.getenv") as mock_getenv,
-        patch("fancylog.fancylog.distributions") as mock_distributions,
+        patch("shutil.which", return_value=None),
+        patch("subprocess.run") as mock_run,
     ):
         # Eliminate conda environment packages triggers logging pip list
         os.environ.pop("CONDA_PREFIX", None)
@@ -425,7 +468,9 @@ def test_mock_no_environment(tmp_path):
         # Mock lack of any local environment
         mock_getenv.return_value = None
 
-        mock_distributions.return_value = fake_distributions
+        mock_run.return_value = MagicMock(
+            stdout=json.dumps(fake_pkgs), returncode=0
+        )
 
         fancylog.start_logging(tmp_path, fancylog, write_env_packages=True)
 
