@@ -488,14 +488,15 @@ def test_mock_no_environment(tmp_path):
             assert f"{'pytest':20} {'1.1.1'}"
 
 
-def test_multiprocessing_warning_on_windows(tmp_path):
-    """A warning is raised and multiprocessing logging
-    is disabled on Windows.
-    """
+@pytest.mark.parametrize("start_method", ["spawn", "forkserver"])
+def test_multiprocessing_warning_without_fork(tmp_path, start_method):
+    """Unsupported start methods fall back to ordinary logging."""
+    mp_logging = MagicMock()
     with (
-        patch("platform.system", return_value="Windows"),
+        patch("multiprocessing.get_start_method", return_value=start_method),
+        patch.dict(sys.modules, {"multiprocessing_logging": mp_logging}),
         pytest.warns(
-            UserWarning, match="Multiprocessing logging is not supported"
+            UserWarning, match="Multiprocessing logging requires.*fork"
         ),
     ):
         fancylog.start_logging(
@@ -503,3 +504,29 @@ def test_multiprocessing_warning_on_windows(tmp_path):
             fancylog,
             multiprocessing_aware=True,
         )
+    mp_logging.install_mp_handler.assert_not_called()
+    log_file = next(tmp_path.glob("*.log"))
+    assert "Not logging multiple processes" in log_file.read_text()
+
+
+def test_multiprocessing_with_fork(tmp_path):
+    """The supported start method still installs the handler."""
+    mp_logging = MagicMock()
+    with (
+        patch("multiprocessing.get_start_method", return_value="fork"),
+        patch.dict(sys.modules, {"multiprocessing_logging": mp_logging}),
+    ):
+        fancylog.start_logging(tmp_path, fancylog, multiprocessing_aware=True)
+    mp_logging.install_mp_handler.assert_called_once_with()
+
+
+def test_multiprocessing_opt_out(tmp_path):
+    """Opting out does not inspect the context or install a handler."""
+    mp_logging = MagicMock()
+    with (
+        patch("multiprocessing.get_start_method") as get_start_method,
+        patch.dict(sys.modules, {"multiprocessing_logging": mp_logging}),
+    ):
+        fancylog.start_logging(tmp_path, fancylog, multiprocessing_aware=False)
+    get_start_method.assert_not_called()
+    mp_logging.install_mp_handler.assert_not_called()

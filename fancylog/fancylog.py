@@ -3,8 +3,8 @@
 import contextlib
 import json
 import logging
+import multiprocessing
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -65,6 +65,8 @@ def start_logging(
         Header for the log file, if the args are written.
     multiprocessing_aware
         Log from multiple processes. Default: True
+        Requires the 'fork' start method; otherwise warns and uses
+        ordinary logging.
     write_header
         Write a header for the log file. Default: True
     write_git
@@ -600,6 +602,8 @@ def setup_logging(
         Logging level for file output. Default is 'DEBUG'.
     multiprocessing_aware
         If True, enables multiprocessing-safe logging. Default is True.
+        Requires the 'fork' start method; otherwise warns and uses
+        ordinary logging.
     log_to_console
         If True, logs will also be printed to the console. Default is True.
     logger_name
@@ -618,9 +622,9 @@ def setup_logging(
             "must be performed with the root logger."
         )
 
-    if multiprocessing_aware and platform.system() == "Windows":
+    if multiprocessing_aware and multiprocessing.get_start_method() != "fork":
         warnings.warn(
-            "Multiprocessing logging is not supported on Windows. "
+            "Multiprocessing logging requires the 'fork' start method. "
             "It has been disabled.",
             UserWarning,
             stacklevel=2,
