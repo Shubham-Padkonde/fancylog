@@ -5,6 +5,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -530,3 +531,29 @@ def test_multiprocessing_opt_out(tmp_path):
         fancylog.start_logging(tmp_path, fancylog, multiprocessing_aware=False)
     get_start_method.assert_not_called()
     mp_logging.install_mp_handler.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "default_methods, installed",
+    [(["fork", "spawn"], True), (["spawn", "fork"], False)],
+)
+def test_multiprocessing_unset_start_method_uses_default(
+    tmp_path, default_methods, installed
+):
+    """An unset start method is read without fixing the global context."""
+    mp_logging = MagicMock()
+    with (
+        patch(
+            "multiprocessing.get_start_method", return_value=None
+        ) as get_start_method,
+        patch(
+            "multiprocessing.get_all_start_methods",
+            return_value=default_methods,
+        ),
+        patch.dict(sys.modules, {"multiprocessing_logging": mp_logging}),
+        warnings.catch_warnings(),
+    ):
+        warnings.simplefilter("ignore", UserWarning)
+        fancylog.start_logging(tmp_path, fancylog, multiprocessing_aware=True)
+    get_start_method.assert_called_once_with(allow_none=True)
+    assert mp_logging.install_mp_handler.called == installed

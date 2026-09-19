@@ -580,6 +580,19 @@ def initialise_logger(
     return logger
 
 
+def _start_method():
+    """Return the multiprocessing start method without fixing it.
+
+    ``multiprocessing.get_start_method()`` without ``allow_none`` sets the
+    default context as a side effect, so a later ``set_start_method()`` call
+    by the user would raise. The first supported method is the default.
+    """
+    return (
+        multiprocessing.get_start_method(allow_none=True)
+        or multiprocessing.get_all_start_methods()[0]
+    )
+
+
 def setup_logging(
     filename,
     print_level="INFO",
@@ -622,7 +635,7 @@ def setup_logging(
             "must be performed with the root logger."
         )
 
-    if multiprocessing_aware and multiprocessing.get_start_method() != "fork":
+    if multiprocessing_aware and _start_method() != "fork":
         warnings.warn(
             "Multiprocessing logging requires the 'fork' start method. "
             "It has been disabled.",
